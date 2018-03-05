@@ -1,12 +1,20 @@
 ---
 title: "Biostats II Course Project"
-output: html_document
+author: Antoine Beauchamp
+date: March 5th, 2018
+output: 
+  html_document:
+    theme: paper
+    highlight: pygments
 ---
+
+Start by loading `tidyverse` library. 
 
 ```{r}
 library(tidyverse)
 ```
 
+Write a function to prepend the full path to the data to file names. 
 
 ```{r}
 prependPath <- function(filename){
@@ -15,6 +23,8 @@ prependPath <- function(filename){
   return(out)
 }
 ```
+
+Load behvioural and brain volume data.
 
 ```{r}
 file_behav <- "CompiledBehavDataUSE.csv"
@@ -32,18 +42,13 @@ What is the experimental structure?
 ```{r}
 df_behav %>% 
   select(Strain, Genotype, Treatment) %>% 
+  arrange(Strain) %>% 
   unique()
 ```
 
 We have three strains: 16p, FMR1 and Shank3. Each strain has a group treated with Oxytocin, and a placebo group. Each treatment group has a background wildtype strain for comparison. Treatment wildtypes were also treated. 
 
-```{r}
-df_behav <- df_behav %>% 
-  mutate(Genotype = relevel(as.factor(Genotype),ref="Wt"),
-         Treatment = relevel(as.factor(Treatment), ref="Pl"))
-```
-
-The image data has three time points: Before treatment (5 weeks of age), before behaviour (8 weeks of age), after behaviour (9 weeks). Let's select the volumes before treatment. 
+The image data has three time points: Before treatment (5 weeks of age), before behaviour (8 weeks of age), after behaviour (9 weeks). Let's select the volumes before treatment. Let's get rid of the extra variable columns and select the early time point.
 
 ```{r}
 df_brain_start <- df_brain %>% 
@@ -54,37 +59,36 @@ nrow(df_brain_start)
 nrow(df_behav)
 ```
 
-We don't have consistent numbers of observations. There are more behavioural observations than imaging observations at a given timepoint. I don't know what the correspondence is between these two data frames. 
+We don't have consistent numbers of observations. There are more behavioural observations than imaging observations at a given timepoint. Data was lost when scanning. 
+
+Breakdown of observations in both data frames: 
 
 ```{r}
-age <- 8
+age <- 5
 print(paste("Age :", age))
 
 for (i in unique(df_behav$Group)){
-  nbrain <- df_brain %>% select(Group, Strain, ID, Age) %>% filter(Group == i, Age == 9) %>% nrow()
+  nbrain <- df_brain_start %>% select(Group, Strain, ID, Age) %>% filter(Group == i, Age == age) %>% nrow()
   nbehav <- df_behav %>% select(Group, Strain, ID) %>% filter(Group == i) %>% nrow()
   print(paste("Group",i,"; Brain :", nbrain, ";", "Behav :",nbehav))
 }
 ```
 
 ```{r}
-t <- inner_join(df_brain_start, df_behav, by = c("Group","Strain","ID","Genotype", "Treatment"))
+df_joined <- inner_join(df_brain_start, df_behav, by = c("Group","Strain","ID","Genotype", "Treatment"))
 ```
-
 
 ```{r}
-df_behav %>% 
-  filter(!(Group %in% c(1,2,3)))
+df_joined <- df_joined %>% 
+  mutate(Genotype = relevel(as.factor(Genotype),ref="Wt"),
+         Treatment = relevel(as.factor(Treatment), ref="Pl"))
 ```
-
-
 
 
 
 ```{r}
-df_16p <- df %>% 
+df_16p <- df_behav %>% 
     filter(Strain == "16P") 
-str(df_16p)
 ```
 
 ```{r}
@@ -121,30 +125,30 @@ ggplot(df_16p[isMut,], aes(x = Treatment, y = zOFCenter)) +
 That's for one strain. We can do this for all strains. 
 
 ```{r}
-df[,"zOFCenter"] <- numeric(nrow(df))
+df_behav[,"zOFCenter"] <- numeric(nrow(df_behav))
 test <- "OFCenter"
 ztest <- "zOFCenter"
 
-for (s in unique(df$Strain)){
+for (s in unique(df_behav$Strain)){
   
-  strainlogi <- df$Strain == s
-  isMut <- df$Genotype == "Mut"
-  isTreat <- df$Treatment == "Oxt"
+  strainlogi <- df_behav$Strain == s
+  isMut <- df_behav$Genotype == "Mut"
+  isTreat <- df_behav$Treatment == "Oxt"
   
-  wtTreatedMean <- mean(df[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
-  wtTreatedSD <- sd(df[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
+  wtTreatedMean <- mean(df_behav[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
+  wtTreatedSD <- sd(df_behav[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
   
-  df[isTreat & strainlogi, ztest] <- (df[strainlogi & isTreat,test] - wtTreatedMean)/wtTreatedSD
+  df_behav[isTreat & strainlogi, ztest] <- (df_behav[strainlogi & isTreat,test] - wtTreatedMean)/wtTreatedSD
   
-  wtPlacMean <- mean(df[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
-  wtPlacSD <- sd(df[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
+  wtPlacMean <- mean(df_behav[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
+  wtPlacSD <- sd(df_behav[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
   
-  df[!isTreat & strainlogi, ztest] <- (df[strainlogi & !isTreat, test] - wtPlacMean)/wtPlacSD
+  df_behav[!isTreat & strainlogi, ztest] <- (df_behav[strainlogi & !isTreat, test] - wtPlacMean)/wtPlacSD
 }
 ```
 
 ```{r}
-ggplot(df[isMut,], aes(x=Treatment, y=zOFDist)) + 
+ggplot(df_behav[isMut,], aes(x=Treatment, y=zOFCenter)) + 
   geom_jitter(width=0.2, aes(col=Strain)) +
   geom_boxplot(alpha=0.3, outlier.size = NA)
 ```
@@ -158,8 +162,8 @@ Why do we have to do this in the first place?
 There's a difference in mutant to wildtype for a given measure. Right? 
 
 ```{r}
-ind <- df$Strain == "16P" & df$Treatment == "Pl"
-ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+ind <- df_behav$Strain == "16P" & df_behav$Treatment == "Pl"
+ggplot(df_behav[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter)) + 
   geom_jitter(width=0.2) + 
   geom_boxplot(alpha=0.3, outlier.size = NA)
 
@@ -167,8 +171,8 @@ ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) +
 So this is the base mutant wildtype difference for 16p without treatment. We can then see how this difference changes with treatment. 
 
 ```{r}
-ind <- df$Strain == "16P"
-ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+ind <- df_behav$Strain == "16P"
+ggplot(df_behav[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter)) + 
   geom_jitter(width=0.2) + 
   geom_boxplot(alpha=0.3, outlier.size = NA) + 
   facet_grid(.~Treatment)
@@ -177,7 +181,7 @@ ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) +
 And then this itself can be done for each strain. 
 
 ```{r}
-ggplot(df, aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+ggplot(df_behav, aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter)) + 
   geom_jitter(width=0.2) + 
   geom_boxplot(alpha=0.3, outlier.size = NA) + 
   facet_grid(Strain~Treatment)
@@ -186,7 +190,7 @@ ggplot(df, aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) +
 Or rather
 
 ```{r}
-ggplot(df, aes(col=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter, x=Treatment)) + 
+ggplot(df_behav, aes(col=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter, x=Treatment)) + 
   geom_jitter(width=0.2) + 
   geom_boxplot(alpha=0.3, outlier.size = NA) + 
   facet_grid(.~Strain)
@@ -201,4 +205,40 @@ Possible things:
 * Mutant-wildtype z-scores for each sub-group (Strain + Treatment)
 * Mutant-wildtype z-scores using treated and untreated mutants but only treated wildtypes.
 
+
+# March 5th, 2018
+
+Can brain volumes at start timepoint predict treatment response on a given measure at week 8? How do we define treatment response? Scores on a given measure? For instance, here's a model that uses all brain structures as predictors of `OFCenter`: 
+```{r}
+df_for_fit <- df_joined %>% 
+  select(OFCenter, amygdala:ventral_tegmental_decussation)
+
+mod <- lm(OFCenter ~ ., data=df_for_fit)
+summary(mod)
+```
+
+If we define "responders" vs. "non-responders" as labels, we can go into classification methods. But how do we define these? 
+
+```{r}
+ggplot(df_joined, aes(x=OFCenter, fill = Treatment, col=Treatment, y = ..count../sum(..count..))) + geom_histogram(bins = 15, alpha=0.8)
+```
+
+This doesn't show much of a breakdown betwen treated mice and placebo. 
+
+```{r}
+ggplot(df_joined, aes(x = Treatment, y = OFCenter)) + 
+  geom_boxplot(outlier.size=NA, alpha=0.5) + 
+  geom_jitter(width = 0.3)
+```
+
+Neither does that. 
+
+```{r}
+df_joined <- df_joined %>% mutate(FullStrain = paste(Strain,Genotype))
+
+ggplot(df_joined, aes(x = FullStrain, y = OFCenter, col = Treatment)) + 
+  geom_boxplot(outlier.size = NA, alpha=0.3)
+```
+
+Not sure what to do with this info. 
 
