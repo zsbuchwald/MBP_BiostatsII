@@ -54,19 +54,17 @@ nrow(df_brain_start)
 nrow(df_behav)
 ```
 
-We don't have consistent numbers of observations. I don't know what the correspondence is between these two data frames. 
+We don't have consistent numbers of observations. There are more behavioural observations than imaging observations at a given timepoint. I don't know what the correspondence is between these two data frames. 
 
 ```{r}
+age <- 8
+print(paste("Age :", age))
 
 for (i in unique(df_behav$Group)){
   nbrain <- df_brain %>% select(Group, Strain, ID, Age) %>% filter(Group == i, Age == 9) %>% nrow()
   nbehav <- df_behav %>% select(Group, Strain, ID) %>% filter(Group == i) %>% nrow()
-  print(paste("Group ",i," : ", nbrain == nbehav))
+  print(paste("Group",i,"; Brain :", nbrain, ";", "Behav :",nbehav))
 }
-
-
-df_brain %>% select(Group, Strain, ID, Age) %>% filter(Group == 8, Age == 5) %>% nrow()
-df_behav %>% select(Group, Strain, ID) %>% filter(Group == 9) %>% nrow()
 ```
 
 ```{r}
