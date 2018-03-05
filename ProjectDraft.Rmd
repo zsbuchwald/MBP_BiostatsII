@@ -1,0 +1,206 @@
+---
+title: "Biostats II Course Project"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+prependPath <- function(filename){
+  path <- "~/Documents/Education/University/PhD/University of Toronto/Courses/2018W_BiostatsII/Project/"
+  out <- paste0(path,filename)
+  return(out)
+}
+```
+
+```{r}
+file_behav <- "CompiledBehavDataUSE.csv"
+df_behav <- read_csv(prependPath(file_behav))
+
+file_brain <- "CCP_InV_Cross_AllData_NotT_rel.csv"
+df_brain <- read_csv(prependPath(file_brain))
+
+glimpse(df_behav)
+glimpse(df_brain)
+```
+
+What is the experimental structure?
+
+```{r}
+df_behav %>% 
+  select(Strain, Genotype, Treatment) %>% 
+  unique()
+```
+
+We have three strains: 16p, FMR1 and Shank3. Each strain has a group treated with Oxytocin, and a placebo group. Each treatment group has a background wildtype strain for comparison. Treatment wildtypes were also treated. 
+
+```{r}
+df_behav <- df_behav %>% 
+  mutate(Genotype = relevel(as.factor(Genotype),ref="Wt"),
+         Treatment = relevel(as.factor(Treatment), ref="Pl"))
+```
+
+The image data has three time points: Before treatment (5 weeks of age), before behaviour (8 weeks of age), after behaviour (9 weeks). Let's select the volumes before treatment. 
+
+```{r}
+df_brain_start <- df_brain %>% 
+  filter(Age == 5) %>% 
+  select(-X1, -X)
+
+nrow(df_brain_start)
+nrow(df_behav)
+```
+
+We don't have consistent numbers of observations. I don't know what the correspondence is between these two data frames. 
+
+```{r}
+
+for (i in unique(df_behav$Group)){
+  nbrain <- df_brain %>% select(Group, Strain, ID, Age) %>% filter(Group == i, Age == 9) %>% nrow()
+  nbehav <- df_behav %>% select(Group, Strain, ID) %>% filter(Group == i) %>% nrow()
+  print(paste("Group ",i," : ", nbrain == nbehav))
+}
+
+
+df_brain %>% select(Group, Strain, ID, Age) %>% filter(Group == 8, Age == 5) %>% nrow()
+df_behav %>% select(Group, Strain, ID) %>% filter(Group == 9) %>% nrow()
+```
+
+```{r}
+t <- inner_join(df_brain_start, df_behav, by = c("Group","Strain","ID","Genotype", "Treatment"))
+```
+
+
+```{r}
+df_behav %>% 
+  filter(!(Group %in% c(1,2,3)))
+```
+
+
+
+
+
+```{r}
+df_16p <- df %>% 
+    filter(Strain == "16P") 
+str(df_16p)
+```
+
+```{r}
+ggplot(df_16p, aes(x=Genotype, y=OFCenter)) + 
+    geom_jitter(width=0.2) + 
+    geom_boxplot(alpha=0.3, outlier.size = 0) + 
+  facet_grid(.~Treatment)
+```
+
+Are we looking at the treatment effects on the mutant mice? Or just the treatment effects in general? We have placebo wildtypes, which are our "normal mice". Then these mice are mutated to model the disorder. These are our mutant mice. These mutant mice are then treated to see if we can rescue the phenotypes of the disorder. But the wildtypes are also treated to see what the base effect of the treatment is. I'm not sure what we actually want to compare here. Are we looking at treated mutants vs. placebo wildtypes? Or treated mutants vs. treated wildtypes? This is a hierarchical modelling problem. Something like (Treated Mutant - Treated Wildtype) - (Placebo Mutant - Placebo Wildtype). Can do this as effects, but that will reduce the sample size by a lot. Can also do using z-scores. 
+
+```{r}
+isMut <- df_16p$Genotype == "Mut"
+isTreat <- df_16p$Treatment == "Oxt"
+
+#Mean effect
+treatEffect <- (mean(df_16p$OFCenter[isTreat & isMut]) - mean(df_16p$OFCenter[isTreat & !isMut]))/sd(df_16p$OFCenter[isTreat & !isMut])
+
+placEffect <- (mean(df_16p$OFCenter[!isTreat & isMut], na.rm = T) - mean(df_16p$OFCenter[!isTreat & !isMut], na.rm = T))/sd(df_16p$OFCenter[!isTreat & !isMut], na.rm = T)
+
+treatEffect - placEffect
+
+#z Scores
+df_16p$zOFCenter <- numeric(nrow(df_16p))
+df_16p$zOFCenter[isTreat] <- (df_16p$OFCenter[isTreat] - mean(df_16p$OFCenter[isTreat & !isMut], na.rm=T))/sd(df_16p$OFCenter[isTreat & !isMut], na.rm = T)
+df_16p$zOFCenter[!isTreat] <- (df_16p$OFCenter[!isTreat] - mean(df_16p$OFCenter[!isTreat & !isMut], na.rm = T))/sd(df_16p$OFCenter[!isTreat & !isMut], na.rm = T)
+
+ggplot(df_16p[isMut,], aes(x = Treatment, y = zOFCenter)) + 
+  geom_jitter() + 
+  geom_boxplot(alpha=0.3, outlier.size = NA) 
+
+```
+
+That's for one strain. We can do this for all strains. 
+
+```{r}
+df[,"zOFCenter"] <- numeric(nrow(df))
+test <- "OFCenter"
+ztest <- "zOFCenter"
+
+for (s in unique(df$Strain)){
+  
+  strainlogi <- df$Strain == s
+  isMut <- df$Genotype == "Mut"
+  isTreat <- df$Treatment == "Oxt"
+  
+  wtTreatedMean <- mean(df[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
+  wtTreatedSD <- sd(df[strainlogi & isTreat & !isMut,][[test]], na.rm=T)
+  
+  df[isTreat & strainlogi, ztest] <- (df[strainlogi & isTreat,test] - wtTreatedMean)/wtTreatedSD
+  
+  wtPlacMean <- mean(df[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
+  wtPlacSD <- sd(df[strainlogi & !isTreat & !isMut,][[test]], na.rm=T)
+  
+  df[!isTreat & strainlogi, ztest] <- (df[strainlogi & !isTreat, test] - wtPlacMean)/wtPlacSD
+}
+```
+
+```{r}
+ggplot(df[isMut,], aes(x=Treatment, y=zOFDist)) + 
+  geom_jitter(width=0.2, aes(col=Strain)) +
+  geom_boxplot(alpha=0.3, outlier.size = NA)
+```
+
+If we're looking at treatment response, is it valid to use the behavioural measures as predictors and the treatment variable as the response? In other words, can we predict, based on the different behavioural measures, which mice were treated and which weren't? 
+
+But then how do we define that if we have to match each mouse to their appropriate wildtypes? The problem is that you're using the treatment to define your groups, and then using those groups to predict the treatment. It's circular. What if we don't use the treatment groups? What if we just pool the data at the level of the strains? Is it valid to do that if some of the wildtypes were treated? Can we just take the average of a measure for treated and placebo wildtypes? Should we drop the treated wildtypes? 
+
+Why do we have to do this in the first place? 
+
+There's a difference in mutant to wildtype for a given measure. Right? 
+
+```{r}
+ind <- df$Strain == "16P" & df$Treatment == "Pl"
+ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+  geom_jitter(width=0.2) + 
+  geom_boxplot(alpha=0.3, outlier.size = NA)
+
+```
+So this is the base mutant wildtype difference for 16p without treatment. We can then see how this difference changes with treatment. 
+
+```{r}
+ind <- df$Strain == "16P"
+ggplot(df[ind,], aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+  geom_jitter(width=0.2) + 
+  geom_boxplot(alpha=0.3, outlier.size = NA) + 
+  facet_grid(.~Treatment)
+```
+
+And then this itself can be done for each strain. 
+
+```{r}
+ggplot(df, aes(x=relevel(as.factor(Genotype), ref="Wt"), y=OFDist)) + 
+  geom_jitter(width=0.2) + 
+  geom_boxplot(alpha=0.3, outlier.size = NA) + 
+  facet_grid(Strain~Treatment)
+```
+
+Or rather
+
+```{r}
+ggplot(df, aes(col=relevel(as.factor(Genotype), ref="Wt"), y=OFCenter, x=Treatment)) + 
+  geom_jitter(width=0.2) + 
+  geom_boxplot(alpha=0.3, outlier.size = NA) + 
+  facet_grid(.~Strain)
+```
+
+The first question is whether the mutants have to be compared to their respective wildtypes. 
+
+I don't exactly know what we're wanting to do here. Something isn't sitting right about comparing the mutants to the wildtypes for the different treatment groups, since the treatment might affect the wildtypes as well. So how is it a reasonable comparison? 
+
+Possible things: 
+
+* Mutant-wildtype z-scores for each sub-group (Strain + Treatment)
+* Mutant-wildtype z-scores using treated and untreated mutants but only treated wildtypes.
+
+
